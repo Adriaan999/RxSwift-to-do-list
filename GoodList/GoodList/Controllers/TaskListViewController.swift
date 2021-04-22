@@ -8,12 +8,15 @@
 import Foundation
 import UIKit
 import RxSwift
+import RxCocoa
 
 class TaskListViewController: UIViewController, UITableViewDelegate, UITableViewDataSource {
     
     @IBOutlet weak var prioritySegmentedControl: UISegmentedControl!
     @IBOutlet weak var tableView: UITableView!
     
+    private var task =  BehaviorRelay<[Task]>(value: [])
+    private var filteredTask = [Task]()
     let disposeBag = DisposeBag()
     
     override func viewDidLoad() {
@@ -26,9 +29,38 @@ class TaskListViewController: UIViewController, UITableViewDelegate, UITableView
               let addTaskViewController = navigationController.viewControllers.first as? AddTaskViewController else {
             return
         }
-        addTaskViewController.taskSubjectObservable.subscribe(onNext: { task in
-            print(task)
+        addTaskViewController.taskSubjectObservable.subscribe(onNext: { [unowned self] task in
+            let priority = Priority(rawValue: self.prioritySegmentedControl.selectedSegmentIndex - 1)
+            var existingTask = self.task.value
+            existingTask.append(task)
+            self.task.accept(existingTask)
+            self.filterTask(by: priority)
         }).disposed(by: disposeBag)
+    }
+    
+    private func filterTask(by priority: Priority?) {
+        if priority == nil {
+            self.filteredTask = self.task.value
+            self.updateTableView()
+        } else {
+            self.task.map { task in
+                return task.filter {$0.prioroty == priority}
+            }.subscribe(onNext: { [weak self] task in
+                self?.filteredTask = task
+                self?.updateTableView()
+            }).disposed(by: disposeBag)
+        }
+    }
+    
+    private func updateTableView() {
+        DispatchQueue.main.async {
+            self.tableView.reloadData()
+        }
+    }
+    
+    @IBAction func priorityValueChanged(segmentedControl: UISegmentedControl) {
+        let priority = Priority(rawValue: segmentedControl.selectedSegmentIndex - 1)
+        filterTask(by: priority)
     }
     
     func numberOfSections(in tableView: UITableView) -> Int {
@@ -36,11 +68,12 @@ class TaskListViewController: UIViewController, UITableViewDelegate, UITableView
     }
     
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return 10
+        return self.filteredTask.count
     }
     
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: "TaskTableViewCell", for: indexPath)
+        cell.textLabel?.text = self.filteredTask[indexPath.row].title
         return cell
     }
 }
